@@ -1,0 +1,132 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # 触发条件：推送以 v 开头的标签，如 v1.0.0
+  workflow_dispatch:  # 允许手动触发
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.32.8'  # 使用稳定版本，可根据需要调整
+        channel: 'stable'
+    
+    - name: Install dependencies
+      run: flutter pub get
+    
+    - name: Build Windows executable
+      run: flutter build windows --release
+    
+    - name: Create Windows archive
+      run: |
+        cd build\windows\x64\runner\Release
+        7z a -tzip ..\..\..\..\tetris-windows.zip *
+    
+    - name: Upload Windows artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: tetris-windows
+        path: tetris-windows.zip
+
+  build-android:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '17'
+    
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.32.8'
+        channel: 'stable'
+    
+    - name: Install dependencies
+      run: flutter pub get
+    
+    - name: Build Android APK
+      run: flutter build apk --release --split-per-abi
+    
+    - name: Upload Android artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: tetris-android
+        path: build/app/outputs/flutter-apk/*.apk
+
+  release:
+    needs: [build-windows, build-android]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download Windows artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: tetris-windows
+        path: ./artifacts/
+    
+    - name: Download Android artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: tetris-android
+        path: ./artifacts/
+    
+    - name: Get tag name
+      id: tag
+      run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.tag.outputs.tag }}
+        name: Release ${{ steps.tag.outputs.tag }}
+        draft: false
+        prerelease: false
+        files: |
+          ./artifacts/tetris-windows.zip
+          ./artifacts/*.apk
+        body: |
+          ## 📱 Tetris Game Release ${{ steps.tag.outputs.tag }}
+          
+          ### 🚀 新版本特性
+          - 支持Windows平台
+          - 支持Android平台（多架构APK）
+          
+          ### 📦 下载说明
+          - **Windows用户**: 下载 `tetris-windows.zip`，解压后运行 `tetris.exe`
+          - **Android用户**: 根据设备架构下载对应的APK文件：
+            - `app-arm64-v8a-release.apk` - 适用于64位ARM设备（推荐）
+            - `app-armeabi-v7a-release.apk` - 适用于32位ARM设备
+            - `app-x86_64-release.apk` - 适用于64位x86设备
+          
+          ### 🔧 系统要求
+          - **Windows**: Windows 10及以上版本
+          - **Android**: Android 5.0 (API 21)及以上版本
+          
+          ---
+          
+          构建时间: ${{ github.event.head_commit.timestamp }}
+          提交哈希: ${{ github.sha }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
