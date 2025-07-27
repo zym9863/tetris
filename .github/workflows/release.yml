@@ -31,8 +31,9 @@ jobs:
     
     - name: Create Windows archive
       run: |
-        cd build\windows\x64\runner\Release
-        7z a -tzip ..\..\..\..\tetris-windows.zip *
+        mkdir release-files
+        xcopy build\windows\x64\runner\Release\* release-files\ /E /H /Y
+        tar -a -c -f tetris-windows.zip -C release-files .
     
     - name: Upload Windows artifact
       uses: actions/upload-artifact@v4
